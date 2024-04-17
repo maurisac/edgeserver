@@ -16,8 +16,8 @@ class Client:
     def setMessage(self):
         if self.mode == "tcp":
             result = []
-            for _ in range(3):  # 5 sottoliste
-                sublist = [random.random() for _ in range(3)]  # Ogni sottolista con 3 elementi
+            for _ in range(4):  # 5 sottoliste
+                sublist = [random.random() * 100 for _ in range(3)]  # Ogni sottolista con 3 elementi
                 result.append(sublist)
             return np.array(result, dtype=float)
 
@@ -31,7 +31,6 @@ class Client:
     def sendMessageTCP(self):
         byte_data = b''
         for sublist in self.message:
-            # Converti ogni elemento della sotto-lista in float e aggiungilo ai dati byte
             byte_data += b''.join(struct.pack('f', f) for f in sublist)
 
         (self.socket).connect((self.host, self.port))
