@@ -6,19 +6,19 @@
 #include <arpa/inet.h>
 #include <math.h>  
 #include <string.h>
-#include<stdbool.h>
+#include <stdbool.h>
 
 #define ACCEPTED_CLIENTS 3
-#define N_VALUES_IN_RMS 50
-#define SERVER_PORT 7072
-#define DESTINATION_PORT 7001
 #define SERIES_LENGTH 3
 #define BUFFER_SIZE 5000
+#define ROWS_BEFORE_RMS 2
+#define ROWS_BEFORE_SENDING 2
+#define SERVER_PORT 7132
+#define DESTINATION_PORT 6003
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t rows_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
-int rows_printed = 0;
+
+int rms_rows_printed = 0, rms_last_read_line = 0, signals_rows_printed = 0, signals_last_read_line = 0;
 char filename[] = "csv_files/sensor_signals.csv";
 
 typedef struct rms_values{
@@ -32,38 +32,85 @@ typedef struct char_to_print{
     int axis;
 } char_to_print;
 
-void* send_to_server(void *args){
-    // Devo mandare sia i valori dei sensori, sia l'RMS
-    int destination_socket;
+void send_to_server(){
+    // Attualmente funziona solamente per i segnali
+
+    FILE *fp;
+    int destination_socket, axis = 0, current_row = 0, c = EOF, linecount = 0;
     struct sockaddr_in destination_addr;
-    char destination_ip[] = "127.0.0.1";
+    char destination_ip[] = "127.0.0.1", row[BUFFER_SIZE], *token;
+    float signals[ROWS_BEFORE_SENDING][SERIES_LENGTH];
 
     destination_socket = socket(AF_INET, SOCK_STREAM, 0);
+    if (destination_socket == -1) {
+        printf("There was a problem while creating the destination socket..\n");
+        exit(0);
+    }
 
     destination_addr.sin_family = AF_INET;
-    destination_addr.sin_port = htons(SERVER_PORT);
+    destination_addr.sin_port = htons(DESTINATION_PORT);
     destination_addr.sin_addr.s_addr = inet_addr(destination_ip);
 
-    bind(destination_socket, (struct sockaddr*) &destination_addr, sizeof(destination_addr));
+    fp = fopen(filename, "r");
+    if (fp != NULL) {
+        while (linecount < signals_last_read_line && (c=fgetc(fp)) != EOF) {
+            if (c == '\n')
+                linecount++;
+        }
+        while (fgets(row, BUFFER_SIZE, fp) != NULL && current_row < signals_rows_printed) {
+            token = strtok(row, ",");
 
+            while(token != NULL){
+                float value = atof(token);
+                signals[current_row][axis] = value;
+                axis = (axis + 1) %  SERIES_LENGTH;
+                token = strtok(NULL, ",");
+            }
+            current_row++;
+            signals_last_read_line++;
+        }
+        signals_rows_printed = 0;
+
+        fseek(fp, 0, SEEK_END);
+        fclose(fp);
+
+        if (connect(destination_socket, (struct sockaddr*) &destination_addr, sizeof(destination_addr)) == -1) {
+            printf("There was an error while connecting to the server..\n");
+            exit(0);
+        }
+
+        if (send(destination_socket, signals, sizeof(signals), 0) == -1) {
+            printf("There was an error while sending data to the server..\n");
+            exit(0);
+        }
+
+        close(destination_socket);
+    } else {
+        printf("There was an error opening the file..\n");
+        exit(0);
+    }
+    close(destination_socket);
 }
 
-void* root_mean_squared(){
+rms_values root_mean_squared(){
     FILE *fp;
     rms_values rms;
-    char row[1024], *token;
-    int axis = 0, current_row = 0;
+    char row[BUFFER_SIZE], *token;
+    int axis = 0, current_row = 0, linecount = 0, c = EOF;
 
     rms.x = 0;
     rms.y = 0;
     rms.z = 0;
+
     printf("Getting ready to calculate RMS..\n");
-    pthread_mutex_lock(&mutex);
     fp = fopen(filename, "r");
     if (fp != NULL) {
-        fseek(fp, 0, SEEK_SET);
-        while (fgets(row, 5000, fp) != NULL && current_row < rows_printed) {
-            printf("Calculating RMS..\n");
+        while (linecount < rms_last_read_line && (c=fgetc(fp)) != EOF) {
+            if (c == '\n')
+                linecount++;
+        }
+        printf("Calculating RMS..\n");
+        while (fgets(row, BUFFER_SIZE, fp) != NULL && current_row < rms_rows_printed) {
             token = strtok(row, ",");
 
             while(token != NULL){
@@ -83,46 +130,51 @@ void* root_mean_squared(){
                 token = strtok(NULL, ",");
             }
             current_row++;
+            rms_last_read_line++;
         }
-        rows_printed = 0;
+        rms_rows_printed = 0;
         fseek(fp, 0, SEEK_END);
         fclose(fp);
-        pthread_cond_broadcast(&cond);
-        pthread_mutex_unlock(&mutex);
 
-        rms.x = sqrt(rms.x / N_VALUES_IN_RMS);
-        rms.y = sqrt(rms.y / N_VALUES_IN_RMS);
-        rms.z = sqrt(rms.z / N_VALUES_IN_RMS);
+        rms.x = sqrt(rms.x / ROWS_BEFORE_RMS);
+        rms.y = sqrt(rms.y / ROWS_BEFORE_RMS);
+        rms.z = sqrt(rms.z / ROWS_BEFORE_RMS);
+
+        // Qui devo aggiungere la sezione di codice per mandare i dati al server
         printf("X: %f, Y: %f, Z: %f\n", rms.x, rms.y, rms.z);
     } else {
         printf("There was an error opening the file.\n");
-        pthread_mutex_unlock(&mutex);
     }
-    pthread_exit(0);
+    return rms;
 } 
 
-void *write_to_file(void *args){
+void write_to_file(char_to_print argument){
     FILE *fp;
-    char_to_print argument = *((char_to_print*)args);
     float value = argument.value;
     int axis = argument.axis;
-    printf("Values received: %f - %d.\n", value, axis);
 
-    pthread_mutex_lock(&rows_mutex);
-    if(rows_printed >= N_VALUES_IN_RMS){
-        root_mean_squared();
-        while (rows_printed >= N_VALUES_IN_RMS) {
-            pthread_cond_wait(&cond, &mutex);
+    pthread_mutex_lock(&mutex);
+    if(rms_rows_printed >= ROWS_BEFORE_RMS){
+        printf("Entering RMS function..\n");
+        rms_values rms = root_mean_squared();
+        
+        // Aggiungere qui la sezione di invio al server, devo decidere se fare un thread
+        if (signals_rows_printed >= ROWS_BEFORE_SENDING) {
+            send_to_server();
         }
+        
     }
-    pthread_mutex_unlock(&rows_mutex);
+    pthread_mutex_unlock(&mutex);
+
+    printf("Values received: %f - %d.\n", value, axis);
 
     pthread_mutex_lock(&mutex);
     fp = fopen(filename, "a");
     if (fp != NULL) {
         if (axis == SERIES_LENGTH -1) {
             fprintf(fp, "%f\n", value);
-            rows_printed++; 
+            rms_rows_printed++; 
+            signals_rows_printed++;
         } else {
             fprintf(fp, "%f,", value);
         }
@@ -132,15 +184,15 @@ void *write_to_file(void *args){
         
     }
     pthread_mutex_unlock(&mutex);
-    pthread_exit(0);
 }
 
 void* handle_client(void *args) {
     int client_sock = *((int*)args);
     char client_message[BUFFER_SIZE];
-    FILE *fp;
-
     ssize_t bytes_received;
+
+    memset(client_message, '\0', sizeof(client_message));
+
     bytes_received = recv(client_sock, client_message, sizeof(client_message), 0);
     if (bytes_received < 0) {
         printf("There was an error while receiving the data.\n");
@@ -156,8 +208,7 @@ void* handle_client(void *args) {
             argument.axis = i;
             offset += sizeof(float);
             
-            pthread_create(&write_thread, NULL, write_to_file, (void*) &argument);
-            pthread_join(write_thread, NULL);
+            write_to_file(argument);
         }
     }
     close(client_sock);
@@ -165,12 +216,12 @@ void* handle_client(void *args) {
 }
 
 int main(int argc, char* argv[]) {
-    // Sicuramente serve un'altra socket per inviare i dati al server di storage
     int server_socket;
     struct sockaddr_in server_addr, client_addr;
     char server_ip[] = "127.0.0.1";
 
-    // Bisogna vedere se si può usare una socket "normale", oppure se si vede obbligatoriamente usare socket_raw
+    fclose(fopen(filename, "w"));
+
     server_socket = socket(AF_INET, SOCK_STREAM, 0);
 
     if (server_socket == -1) {
@@ -186,23 +237,19 @@ int main(int argc, char* argv[]) {
 
     if (listen(server_socket, ACCEPTED_CLIENTS) != -1) {
         while (1) {
-            pthread_t client_thread, write_thread;
+            pthread_t client_thread;
             int *client_sock = (int*)malloc(sizeof(int));
             int client_size = sizeof(client_addr);
 
             *client_sock = accept(server_socket, (struct sockaddr*) &client_addr, &client_size);
-            // Mi serve la garanzia di prendere una X, una Y ed una Z per poterle stampare su file CSV sulla stessa linea
             if (*client_sock != -1){
-
                 pthread_create(&client_thread, NULL, handle_client, (void*) client_sock);
-                //pthread_create(&write_thread, NULL, write_to_file, NULL);
-
                 pthread_join(client_thread, NULL);
-                //pthread_join(write_thread, NULL);
                 free(client_sock);
             } else {
                 printf("There was an error while accepting the client.\n");
             }
         }
     }
+    return 0;
 }
