@@ -1,6 +1,7 @@
 import socket
 import threading
 import sys
+import struct
 
 class Server:
     def __init__(self, host, port, mode):
@@ -19,7 +20,9 @@ class Server:
             data = conn.recv(5000)
             if not data:
                 break
-            print(f"Received: {data}")
+            floats = struct.unpack('f' * (len(data) // 4), data)
+
+            print(f"Received floats: {floats}\n") if len(floats) > 3 else print(f"Received RMS: {floats}\n")
 
         conn.close()
         print(f"Connection closed by {addr}")
