@@ -7,18 +7,18 @@
 #include <math.h>  
 #include <string.h>
 #include <stdbool.h>
+#include <errno.h>
 
 #define ACCEPTED_CLIENTS 3
 #define SERIES_LENGTH 3
-#define BUFFER_SIZE 5000
-#define ROWS_BEFORE_RMS 2
-#define ROWS_BEFORE_SENDING 2
-#define SERVER_PORT 7139
-#define DESTINATION_PORT 6006
+#define BUFFER_SIZE 10000
+#define ROWS_BEFORE_RMS 20
+#define ROWS_BEFORE_SENDING 100
+#define SERVER_PORT 7156
+#define DESTINATION_PORT 6013
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t rms_mutex = PTHREAD_MUTEX_INITIALIZER;
-
 
 int rms_rows_printed = 0, rms_last_read_line = 0, signals_rows_printed = 0, signals_last_read_line = 0;
 char filename[] = "csv_files/sensor_signals.csv";
@@ -84,8 +84,8 @@ void send_signals_to_server(){
             exit(0);
         }
     } else {
-        printf("There was an error opening the file..\n");
-        exit(0);
+        printf("There was an error while opening the file: %s\n", strerror(errno));
+        exit(1);
     }
     close(destination_socket);
 }
@@ -130,14 +130,12 @@ rms_values root_mean_squared(){
     rms.y = 0;
     rms.z = 0;
 
-    printf("Getting ready to calculate RMS..\n");
     fp = fopen(filename, "r");
     if (fp != NULL) {
         while (linecount < rms_last_read_line && (c=fgetc(fp)) != EOF) {
             if (c == '\n')
                 linecount++;
         }
-        printf("Calculating RMS..\n");
         while (fgets(row, BUFFER_SIZE, fp) != NULL && current_row < rms_rows_printed) {
             token = strtok(row, ",");
 
@@ -166,11 +164,10 @@ rms_values root_mean_squared(){
         rms.x = sqrt(rms.x / ROWS_BEFORE_RMS);
         rms.y = sqrt(rms.y / ROWS_BEFORE_RMS);
         rms.z = sqrt(rms.z / ROWS_BEFORE_RMS);
-
-        // Qui devo aggiungere la sezione di codice per mandare i dati al server
         
     } else {
-        printf("There was an error opening the file.\n");
+        printf("There was an error while opening the file: %s\n", strerror(errno));
+        exit(1);
     }
     return rms;
 } 
@@ -183,9 +180,7 @@ void write_to_file(char_to_print argument){
 
     pthread_mutex_lock(&mutex);
     if(rms_rows_printed >= ROWS_BEFORE_RMS){
-        printf("Entering RMS function..\n");
         rms = root_mean_squared();
-        // Aggiungere qui la sezione di invio al server, devo decidere se fare un thread
     }
     pthread_mutex_unlock(&mutex);
 
@@ -205,8 +200,6 @@ void write_to_file(char_to_print argument){
     }
     pthread_mutex_unlock(&mutex);
 
-    printf("Values received: %f - %d.\n", value, axis);
-
     pthread_mutex_lock(&mutex);
     fp = fopen(filename, "a");
     if (fp != NULL) {
@@ -219,8 +212,8 @@ void write_to_file(char_to_print argument){
         }
         fclose(fp);
     } else {
-        printf("There was an error opening the file.\n");
-        
+        printf("There was an error while opening the file: %s\n", strerror(errno));
+        exit(1);
     }
     pthread_mutex_unlock(&mutex);
 }
@@ -256,7 +249,7 @@ void* handle_client(void *args) {
 
 int main(int argc, char* argv[]) {
     int server_socket;
-    struct sockaddr_in server_addr, client_addr;
+    struct sockaddr_in server_addr;
     char server_ip[] = "127.0.0.1";
 
     fclose(fopen(filename, "w"));
@@ -277,13 +270,19 @@ int main(int argc, char* argv[]) {
     if (listen(server_socket, ACCEPTED_CLIENTS) != -1) {
         while (1) {
             pthread_t client_thread;
+            struct sockaddr_in client_addr;
             int *client_sock = (int*)malloc(sizeof(int));
             int client_size = sizeof(client_addr);
 
+
             *client_sock = accept(server_socket, (struct sockaddr*) &client_addr, &client_size);
             if (*client_sock != -1){
+                printf("IP address is: %s\n", inet_ntoa(client_addr.sin_addr));
+                printf("port is: %d\n", (int) ntohs(client_addr.sin_port));
+
                 pthread_create(&client_thread, NULL, handle_client, (void*) client_sock);
                 pthread_join(client_thread, NULL);
+                close(*client_sock);
                 free(client_sock);
             } else {
                 printf("There was an error while accepting the client.\n");

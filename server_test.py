@@ -22,7 +22,7 @@ class Server:
                 break
             floats = struct.unpack('f' * (len(data) // 4), data)
 
-            print(f"Received floats: {floats}\n") if len(floats) > 3 else print(f"Received RMS: {floats}\n")
+            print(f"Received {len(floats)} floats\n") if len(floats) > 3 else print(f"Received RMS: {floats}\n")
 
         conn.close()
         print(f"Connection closed by {addr}")
