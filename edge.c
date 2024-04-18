@@ -13,10 +13,12 @@
 #define BUFFER_SIZE 5000
 #define ROWS_BEFORE_RMS 2
 #define ROWS_BEFORE_SENDING 2
-#define SERVER_PORT 7132
-#define DESTINATION_PORT 6003
+#define SERVER_PORT 7139
+#define DESTINATION_PORT 6006
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t rms_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 
 int rms_rows_printed = 0, rms_last_read_line = 0, signals_rows_printed = 0, signals_last_read_line = 0;
 char filename[] = "csv_files/sensor_signals.csv";
@@ -32,9 +34,7 @@ typedef struct char_to_print{
     int axis;
 } char_to_print;
 
-void send_to_server(){
-    // Attualmente funziona solamente per i segnali
-
+void send_signals_to_server(){
     FILE *fp;
     int destination_socket, axis = 0, current_row = 0, c = EOF, linecount = 0;
     struct sockaddr_in destination_addr;
@@ -83,13 +83,41 @@ void send_to_server(){
             printf("There was an error while sending data to the server..\n");
             exit(0);
         }
-
-        close(destination_socket);
     } else {
         printf("There was an error opening the file..\n");
         exit(0);
     }
     close(destination_socket);
+}
+
+void *send_rms_to_server(void *args){
+    rms_values rms = *((rms_values*) args);
+    int destination_socket;
+    struct sockaddr_in destination_addr;
+    char destination_ip[] = "127.0.0.1";
+    float message[] = {rms.x, rms.y, rms.z};
+
+    destination_socket = socket(AF_INET, SOCK_STREAM, 0);
+    if (destination_socket == -1) {
+        printf("There was a problem while creating the destination socket..\n");
+        exit(0);
+    }
+
+    destination_addr.sin_family = AF_INET;
+    destination_addr.sin_port = htons(DESTINATION_PORT);
+    destination_addr.sin_addr.s_addr = inet_addr(destination_ip);
+
+    if (connect(destination_socket, (struct sockaddr*) &destination_addr, sizeof(destination_addr)) == -1) {
+        printf("There was an error while connecting to the server..\n");
+        exit(0);
+    }
+
+    if (send(destination_socket, message, sizeof(message), 0) == -1) {
+        printf("There was an error while sending data to the server..\n");
+        exit(0);
+    }
+
+    pthread_exit(0);
 }
 
 rms_values root_mean_squared(){
@@ -132,7 +160,6 @@ rms_values root_mean_squared(){
             current_row++;
             rms_last_read_line++;
         }
-        rms_rows_printed = 0;
         fseek(fp, 0, SEEK_END);
         fclose(fp);
 
@@ -141,7 +168,7 @@ rms_values root_mean_squared(){
         rms.z = sqrt(rms.z / ROWS_BEFORE_RMS);
 
         // Qui devo aggiungere la sezione di codice per mandare i dati al server
-        printf("X: %f, Y: %f, Z: %f\n", rms.x, rms.y, rms.z);
+        
     } else {
         printf("There was an error opening the file.\n");
     }
@@ -150,19 +177,31 @@ rms_values root_mean_squared(){
 
 void write_to_file(char_to_print argument){
     FILE *fp;
+    rms_values rms;
     float value = argument.value;
     int axis = argument.axis;
 
     pthread_mutex_lock(&mutex);
     if(rms_rows_printed >= ROWS_BEFORE_RMS){
         printf("Entering RMS function..\n");
-        rms_values rms = root_mean_squared();
-        
+        rms = root_mean_squared();
         // Aggiungere qui la sezione di invio al server, devo decidere se fare un thread
-        if (signals_rows_printed >= ROWS_BEFORE_SENDING) {
-            send_to_server();
-        }
-        
+    }
+    pthread_mutex_unlock(&mutex);
+
+    pthread_mutex_lock(&rms_mutex);
+    if(rms_rows_printed >= ROWS_BEFORE_RMS){
+        pthread_t thread;
+
+        rms_rows_printed = 0;
+        pthread_create(&thread, NULL, send_rms_to_server, (void*) &rms);
+        pthread_join(thread, NULL);
+    }
+    pthread_mutex_unlock(&rms_mutex);
+
+    pthread_mutex_lock(&mutex);
+    if (signals_rows_printed >= ROWS_BEFORE_SENDING) {
+        send_signals_to_server();
     }
     pthread_mutex_unlock(&mutex);
 
