@@ -16,16 +16,14 @@ class Server:
     
     def handle_client(self, conn, addr):
         print(f"Connected by {addr}")
-        while True:
-            data = conn.recv(5000)
-            if not data:
-                break
-            floats = struct.unpack('f' * (len(data) // 4), data)
-
-            print(f"Received {len(floats)} floats\n") if len(floats) > 3 else print(f"Received RMS: {floats}\n")
-
+        data = conn.recv(20000)
+        floats = struct.unpack('f' * (len(data) // 4), data)
+        print(f"Received {len(floats)} values\n")
         conn.close()
         print(f"Connection closed by {addr}")
+
+        for val in floats:
+            print(val)
 
     def TCPServer(self):
         (self.socket).bind((self.host, self.port))

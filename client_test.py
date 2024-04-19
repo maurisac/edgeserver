@@ -16,8 +16,8 @@ class Client:
     def setMessage(self):
         if self.mode == "tcp":
             result = []
-            for _ in range(3):  # 5 sottoliste
-                sublist = [random.random() * 100 for _ in range(600)]  # Ogni sottolista con 3 elementi
+            for _ in range(3):  
+                sublist = [random.random() * 100 for _ in range(200)] 
                 result.append(sublist)
             return np.array(result, dtype=float)
 
