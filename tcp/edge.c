@@ -85,7 +85,7 @@ void* send_to_server(void* args){
     pthread_exit(0);
 }
 
-rms_values root_mean_squared(values_to_send values){
+rms_values root_mean_square(values_to_send values){
     rms_values rms;
 
     rms.x = 0;
@@ -140,7 +140,6 @@ void* handle_client(void *args) {
     int offset = 0, index = 0;
     while (offset < bytes_received) {
         for (int i = 0; i < SERIES_LENGTH; i++) {
-            pthread_t write_thread;
             float value = *((float*)(client_message + offset));
             switch (i){
             case 0:
@@ -159,7 +158,7 @@ void* handle_client(void *args) {
     }
     
     pthread_t thread;
-    rms_values rms = root_mean_squared(values);
+    rms_values rms = root_mean_square(values);
     values.x[ROWS_BEFORE_SENDING] = rms.x;
     values.y[ROWS_BEFORE_SENDING] = rms.y;
     values.z[ROWS_BEFORE_SENDING] = rms.z;

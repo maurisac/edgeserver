@@ -24,7 +24,7 @@
 #define BUFFER_SIZE 2500
 #define ROWS_BEFORE_SENDING 200
 #define SERVER_PORT 7237
-#define DESTINATION_PORT 6011
+#define DESTINATION_PORT 6055
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t file_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -102,7 +102,7 @@ void* send_to_server(void* args){
     pthread_exit(0);
 }
 
-rms_values root_mean_squared(values_to_send values){
+rms_values root_mean_square(values_to_send values){
     rms_values rms;
 
     rms.x = 0;
@@ -196,7 +196,6 @@ void handle_client(void *args) {
     int offset = 0, index = 0;
     while (offset < payload_length) {
         for (int i = 0; i < SERIES_LENGTH; i++) {
-            pthread_t write_thread;
             float value = *((float*)(payload + offset));
             switch (i){
             case 0:
@@ -215,7 +214,7 @@ void handle_client(void *args) {
     }
     
     pthread_t thread;
-    rms_values rms = root_mean_squared(values);
+    rms_values rms = root_mean_square(values);
     values.x[ROWS_BEFORE_SENDING] = rms.x;
     values.y[ROWS_BEFORE_SENDING] = rms.y;
     values.z[ROWS_BEFORE_SENDING] = rms.z;
@@ -254,7 +253,7 @@ void queue_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *
 int main(int argc, char* argv[]) {
     int snapshot_length = 262144;
     struct stat st = {0};
-    char error_buffer[PCAP_ERRBUF_SIZE], *device = "lo";
+    char error_buffer[PCAP_ERRBUF_SIZE], *device = "lo0";
     pcap_t *handle;
     struct bpf_program filter;
     char filter_exp[] = "tcp port 7237";
