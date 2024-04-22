@@ -119,6 +119,7 @@ void write_to_file(values_to_send values){
         fclose(fp);
     } else {
         printf("There was an error while opening the file: %s\n", strerror(errno));
+        pthread_mutex_unlock(&file_mutex);
         exit(1);
     }
 }
@@ -131,7 +132,7 @@ void* handle_client(void *args) {
     printf("Handling client..\n");
     memset(client_message, '\0', sizeof(client_message));
 
-    bytes_received = recv(client_sock, client_message, sizeof(client_message), 0);
+    bytes_received = recv(client_sock, client_message, sizeof(client_message), MSG_WAITALL);
     if (bytes_received < 0) {
         printf("There was an error while receiving the data.\n");
         pthread_exit(0);
@@ -176,7 +177,6 @@ int main(int argc, char* argv[]) {
     int server_socket;
     struct sockaddr_in server_addr;
     struct stat st = {0};
-    // Eventualmense qui aggiungere logica per prendermi automaticamente l'indirizzo IP
     char server_ip[] = "127.0.0.1";
 
     if (stat("./csv_files", &st) == -1) {
