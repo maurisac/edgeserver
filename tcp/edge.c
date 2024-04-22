@@ -15,8 +15,8 @@
 #define SERIES_LENGTH 3
 #define BUFFER_SIZE 2500
 #define ROWS_BEFORE_SENDING 200
-#define SERVER_PORT 7238
-#define DESTINATION_PORT 6015
+#define SERVER_PORT 7245
+#define DESTINATION_PORT 3333
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t file_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -39,7 +39,7 @@ void* send_to_server(void* args){
     values_to_send values = *((values_to_send*) args);
     int destination_socket, i, j, k;
     struct sockaddr_in destination_addr;
-    char destination_ip[] = "127.0.0.1";
+    char destination_ip[] = "192.168.128.211";
     float message[(ROWS_BEFORE_SENDING * SERIES_LENGTH) + SERIES_LENGTH];
 
     for (i = 0; i <= ROWS_BEFORE_SENDING; i++){
@@ -74,6 +74,8 @@ void* send_to_server(void* args){
         printf("There was an error while connecting to the server..\n");
         pthread_exit(0);
     }
+
+    
 
     printf("Sending data to the destination server..\n");
     if (send(destination_socket, message, sizeof(message), 0) == -1) {
@@ -131,7 +133,7 @@ void* handle_client(void *args) {
     printf("Handling client..\n");
     memset(client_message, '\0', sizeof(client_message));
 
-    bytes_received = recv(client_sock, client_message, sizeof(client_message), 0);
+    bytes_received = recv(client_sock, client_message, sizeof(client_message), MSG_WAITALL);
     if (bytes_received < 0) {
         printf("There was an error while receiving the data.\n");
         pthread_exit(0);
@@ -177,7 +179,7 @@ int main(int argc, char* argv[]) {
     struct sockaddr_in server_addr;
     struct stat st = {0};
     // Eventualmense qui aggiungere logica per prendermi automaticamente l'indirizzo IP
-    char server_ip[] = "127.0.0.1";
+    char server_ip[] = "192.168.128.210";
 
     if (stat("./csv_files", &st) == -1) {
         mkdir("./csv_files", 0700);
