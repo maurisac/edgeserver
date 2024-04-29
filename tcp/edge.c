@@ -121,6 +121,7 @@ void write_to_file(values_to_send values){
         fclose(fp);
     } else {
         printf("There was an error while opening the file: %s\n", strerror(errno));
+        pthread_mutex_unlock(&file_mutex);
         exit(1);
     }
 }
@@ -178,8 +179,9 @@ int main(int argc, char* argv[]) {
     int server_socket;
     struct sockaddr_in server_addr;
     struct stat st = {0};
+    char server_ip[] = "127.0.0.1";
+
     // Eventualmense qui aggiungere logica per prendermi automaticamente l'indirizzo IP
-    char server_ip[] = "192.168.128.210";
 
     if (stat("./csv_files", &st) == -1) {
         mkdir("./csv_files", 0700);
